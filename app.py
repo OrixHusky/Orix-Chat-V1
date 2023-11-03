@@ -73,26 +73,28 @@ def send_message(target_ip):
     s.close()
 
 
-def manage_connections(data):
-    # Extract the sender's IP address from the received data
-    sender_ip, message = data.split(b':', 1)
-    addr = (sender_ip.decode(), None)  # We don't know the sender's port, so we can use None or any placeholder
-    
+def process_received_data(data):
+    try:
+        sender_ip, message = data.split(b':', 1)
+    except ValueError:
+        print("Received data in an unexpected format:", data)
+        return
+
     if message.startswith(KEY_HEADER):
         key_data = message[len(KEY_HEADER):]
-        with open(f"public_keys/{addr[0]}.pem", "wb") as f:
+        with open(f"public_keys/{sender_ip.decode()}.pem", "wb") as f:
             f.write(key_data)
-        print(f"Received and saved public key from {addr[0]}")
+        print(f"Received and saved public key from {sender_ip.decode()}")
     else:
         try:
             decrypted_message = decrypt_message(message)
-            with open(f"messages/{addr[0]}.txt", "a") as f:
-                f.write(f"{addr[0]}: {decrypted_message}\n")
-            print(f"Received encrypted message from {addr[0]} and saved.")
+            with open(f"messages/{sender_ip.decode()}.txt", "a") as f:
+                f.write(f"{sender_ip.decode()}: {decrypted_message}\n")
+            print(f"Received encrypted message from {sender_ip.decode()} and saved.")
         except:
-            with open(f"messages/{addr[0]}.txt", "a") as f:
-                f.write(f"{addr[0]}: {message.decode('utf-8')}\n")
-            print(f"Received unencrypted message from {addr[0]} and saved.")
+            with open(f"messages/{sender_ip.decode()}.txt", "a") as f:
+                f.write(f"{sender_ip.decode()}: {message.decode('utf-8')}\n")
+            print(f"Received unencrypted message from {sender_ip.decode()} and saved.")
 
 def listener():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -103,7 +105,7 @@ def listener():
         if data == b"That client is not online":
             print(data.decode())
         else:
-            manage_connections(data)
+            process_received_data(data)
 
 def view_received_messages_menu():
     ips = os.listdir("messages")
