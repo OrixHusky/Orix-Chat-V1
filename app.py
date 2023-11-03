@@ -1,174 +1,139 @@
-import socket
 import os
+import socket
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
-import json
-import threading  # Importing threading
+import threading
 
-SETTINGS_FILE = "settings.json"
-KEYS_DIR = "keys"
-MSG_DIR = "messages"
+# Constants
+KEY_HEADER = b'SENDING_PUBLIC_KEY'
 
-if not os.path.exists(KEYS_DIR):
-    os.makedirs(KEYS_DIR)
-if not os.path.exists(MSG_DIR):
-    os.makedirs(MSG_DIR)
-
-
-def load_settings():
-    if not os.path.exists(SETTINGS_FILE):
-        return {}
-    with open(SETTINGS_FILE, 'r') as f:
-        return json.load(f)
-
-
-def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f, indent=4)
-
-
-def generate_key_pair():
+def generate_keys():
+    # Key generation
     key = RSA.generate(2048)
     private_key = key.export_key()
     public_key = key.publickey().export_key()
-    return private_key, public_key
 
+    # Save keys
+    with open("private_key.pem", "wb") as priv_file:
+        priv_file.write(private_key)
+    with open("public.pem", "wb") as pub_file:
+        pub_file.write(public_key)
+    print("Keys generated and saved.")
 
-def save_received_public_key(ip, public_key):
-    with open(os.path.join(KEYS_DIR, f"{ip}.pem"), 'w') as f:
-        f.write(public_key)
+def encrypt_message(message, pub_key):
+    cipher = PKCS1_OAEP.new(pub_key)
+    encrypted_message = cipher.encrypt(message)
+    return encrypted_message
 
+def decrypt_message(encrypted_message):
+    with open("private_key.pem", "rb") as priv_file:
+        private_key = RSA.import_key(priv_file.read())
+    cipher = PKCS1_OAEP.new(private_key)
+    decrypted_message = cipher.decrypt(encrypted_message).decode('utf-8')
+    return decrypted_message
 
-def save_received_message(ip, message):
-    with open(os.path.join(MSG_DIR, f"{ip}.txt"), 'a') as f:
-        f.write(message + '\n')
+def send_message(target_ip):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect((target_ip, 12345))
 
-
-def encrypt_message(public_key_content, message):
-    recipient_key = RSA.import_key(public_key_content)
-    cipher_rsa = PKCS1_OAEP.new(recipient_key)
-    enc_data = cipher_rsa.encrypt(message.encode())
-    return enc_data
-
-
-def send_message_to_ip(target_ip, message):
-    public_key_file = os.path.join(KEYS_DIR, f"{target_ip}.pem")
-
-    if os.path.exists(public_key_file):
-        with open(public_key_file, 'r') as f:
-            recipient_public_key = f.read()
-            encrypted_message = encrypt_message(recipient_public_key, message)
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.connect((target_ip, 12345))
-                    s.sendall(encrypted_message)
-                    print(f"Encrypted message sent to {target_ip}.")
-            except Exception as e:
-                print(f"Error sending encrypted message to {target_ip}. Error: {e}")
+    choice = input("Send encrypted message (E) or unencrypted (U) or public key (K): ").lower()
+    
+    if choice == "k":
+        # Sending public key
+        with open("public.pem", "rb") as f:
+            key_data = f.read()
+        s.send(KEY_HEADER + key_data)
+        print("Public key sent.")
+    elif choice == "e":
+        target_key_file = f'public_keys/{target_ip}.pem'
+        if not os.path.exists(target_key_file):
+            print(f"No public key found for {target_ip}. Cannot send encrypted message.")
+            return
+        with open(target_key_file, "rb") as f:
+            target_pub_key = RSA.import_key(f.read())
+        message = input("Enter your encrypted message: ").encode('utf-8')
+        encrypted_message = encrypt_message(message, target_pub_key)
+        s.send(encrypted_message)
+        print("Encrypted message sent.")
+    elif choice == "u":
+        message = input("Enter your unencrypted message: ").encode('utf-8')
+        s.send(message)
+        print("Unencrypted message sent.")
     else:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect((target_ip, 12345))
-                s.sendall(message.encode())
-                print(f"Unencrypted message sent to {target_ip}.")
-        except Exception as e:
-            print(f"Error sending unencrypted message to {target_ip}. Error: {e}")
-
+        print("Invalid choice.")
+    s.close()
 
 def manage_connections(conn, addr):
-    settings = load_settings()
-    private_key_content = settings.get("private_key")
-
-    with conn:
-        data = conn.recv(1024)
-        if data.startswith(b'PUBLIC_KEY:'):
-            actual_key = data[len(b'PUBLIC_KEY:'):].strip().decode()
-            save_received_public_key(addr[0], actual_key)
-            print(f"Received and saved public key from {addr[0]}.")
-        elif private_key_content:
-            try:
-                private_key = RSA.import_key(private_key_content)
-                cipher_rsa = PKCS1_OAEP.new(private_key)
-                decrypted_message = cipher_rsa.decrypt(data).decode()
-                print(f"Encrypted message from {addr[0]}: {decrypted_message}")
-                save_received_message(addr[0], decrypted_message)
-            except ValueError:
-                print(f"Message from {addr[0]}: {data.decode()}")
-                save_received_message(addr[0], data.decode())
-        else:
-            print(f"Message from {addr[0]}: {data.decode()}")
-            save_received_message(addr[0], data.decode())
+    data = conn.recv(2048)
+    if data.startswith(KEY_HEADER):
+        key_data = data[len(KEY_HEADER):]
+        with open(f"public_keys/{addr[0]}.pem", "wb") as f:
+            f.write(key_data)
+        print(f"Received and saved public key from {addr[0]}")
+    else:
+        try:
+            decrypted_message = decrypt_message(data)
+            with open(f"messages/{addr[0]}.txt", "a") as f:
+                f.write(f"{addr[0]}: {decrypted_message}\n")
+            print(f"Received encrypted message from {addr[0]} and saved.")
+        except:
+            with open(f"messages/{addr[0]}.txt", "a") as f:
+                f.write(f"{addr[0]}: {data.decode('utf-8')}\n")
+            print(f"Received unencrypted message from {addr[0]} and saved.")
 
 def listener():
-    """ Function to run on a separate thread for listening to incoming messages """
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(('0.0.0.0', 12345))
     s.listen(5)
-    print("Started listening for incoming connections...")
     while True:
         conn, addr = s.accept()
         manage_connections(conn, addr)
 
+def view_received_messages():
+    ips = os.listdir("messages")
+    for ip in ips:
+        print(f"\nMessages from {ip.replace('.txt', '')}:")
+        with open(f"messages/{ip}", "r") as f:
+            print(f.read())
 
 def menu():
     while True:
+        os.system('clear' if os.name == 'posix' else 'cls')
         print("   ____       _          _____ _           _   ")
         print("  / __ \     (_)        / ____| |         | | ")
         print(" | |  | |_ __ ___  __  | |    | |__   __ _| |_ ")
         print(" | |  | | '__| \ \/ /  | |    | '_ \ / _` | __|")
         print(" | |__| | |  | |>  <   | |____| | | | (_| | |_ ")
         print("  \____/|_|  |_/_/\_\   \_____|_| |_|\__,_|\__|")
-        print("\n1. Generate new public/private key pair")
-        print("2. Configure settings")
-        print("3. Send message to IP")
-        print("4. View Received Messages")
-        print("5. Send my public key to an IP")
-        print("6. Exit")
-        choice = input("Choose an option: ")
+        print("\nMENU")
+        print("1. Generate Public/Private Key Pair")
+        print("2. Send Message")
+        print("3. View Received Messages")
+        print("4. Send My Public Key")
+        print("5. Exit")
+        choice = input("> ")
+
         if choice == "1":
-            private_key, public_key = generate_key_pair()
-            settings = load_settings()
-            settings['private_key'] = private_key.decode()
-            save_settings(settings)
-            with open("my_public_key.pem", 'w') as f:
-                f.write(public_key.decode())
-            print("Key pair generated. Public key saved as 'my_public_key.pem'")
+            generate_keys()
         elif choice == "2":
-            settings = load_settings()
-            print("\nConfigurations:")
-            for key, value in settings.items():
-                print(f"{key}: {value}")
-            key = input("\nEnter key to modify or add: ")
-            value = input(f"Enter value for {key}: ")
-            settings[key] = value
-            save_settings(settings)
-            print("Settings saved.")
+            ip = input("Enter the target IP address: ")
+            send_message(ip)
         elif choice == "3":
-            target_ip = input("Enter target IP to connect: ")
-            message = input("Enter your message: ")
-            send_message_to_ip(target_ip, message)
+            view_received_messages()
         elif choice == "4":
-            for filename in os.listdir(MSG_DIR):
-                ip = filename.replace('.txt', '')
-                with open(os.path.join(MSG_DIR, filename), 'r') as f:
-                    messages = f.readlines()
-                    print(f"\nMessages from {ip}:")
-                    for message in messages:
-                        print(message.strip())
+            ip = input("Enter the target IP address to send your public key: ")
+            send_message(ip)
         elif choice == "5":
-            target_ip = input("Enter target IP to send your public key: ")
-            with open("my_public_key.pem", 'r') as f:
-                public_key_content = f.read()
-                message = f"PUBLIC_KEY:{public_key_content}"
-                send_message_to_ip(target_ip, message)
-        elif choice == "6":
             break
 
-
 if __name__ == '__main__':
-    # Start the listener in a separate thread
+    if not os.path.exists("public_keys"):
+        os.makedirs("public_keys")
+    if not os.path.exists("messages"):
+        os.makedirs("messages")
+    
     listener_thread = threading.Thread(target=listener)
-    listener_thread.daemon = True  # So the thread will exit when the main program exits
+    listener_thread.daemon = True
     listener_thread.start()
 
-    menu()  # Start the main program menu
+    menu()
