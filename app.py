@@ -37,7 +37,12 @@ def decrypt_message(encrypted_message):
 
 def send_message(target_ip):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((RELAY_SERVER_IP, RELAY_SERVER_PORT))
+    try:
+        s.connect((RELAY_SERVER_IP, RELAY_SERVER_PORT))
+    except Exception as e:
+        print(f"Failed to connect to the relay server: {e}")
+        return
+
     choice = input("Send encrypted message (E) or unencrypted (U) or public key (K): ").lower()
     
     # Prepending the target IP to the message/payload for the relay server.
@@ -66,6 +71,7 @@ def send_message(target_ip):
     else:
         print("Invalid choice.")
     s.close()
+
 
 def manage_connections(data):
     # Extract the sender's IP address from the received data
