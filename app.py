@@ -3,6 +3,7 @@ import os
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 import json
+import threading  # Importing threading
 
 SETTINGS_FILE = "settings.json"
 KEYS_DIR = "keys"
@@ -98,6 +99,16 @@ def manage_connections(conn, addr):
             print(f"Message from {addr[0]}: {data.decode()}")
             save_received_message(addr[0], data.decode())
 
+def listener():
+    """ Function to run on a separate thread for listening to incoming messages """
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(('0.0.0.0', 12345))
+    s.listen(5)
+    print("Started listening for incoming connections...")
+    while True:
+        conn, addr = s.accept()
+        manage_connections(conn, addr)
+
 
 def menu():
     while True:
@@ -155,14 +166,9 @@ def menu():
 
 
 if __name__ == '__main__':
-    # Always listening for incoming messages
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(('0.0.0.0', 12345))
-    s.listen(5)
-    print("Started listening for incoming connections...")
+    # Start the listener in a separate thread
+    listener_thread = threading.Thread(target=listener)
+    listener_thread.daemon = True  # So the thread will exit when the main program exits
+    listener_thread.start()
 
-    while True:
-        conn, addr = s.accept()
-        manage_connections(conn, addr)
-
-    menu()
+    menu()  # Start the main program menu
