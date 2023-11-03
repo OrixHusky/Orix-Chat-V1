@@ -8,6 +8,7 @@ import threading
 KEY_HEADER = b'SENDING_PUBLIC_KEY'
 RELAY_SERVER_IP = '172.126.229.186'  # This should be your relay server's IP.
 RELAY_SERVER_PORT = 4465      # And its port.
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 def generate_keys():
     # Key generation
@@ -66,31 +67,37 @@ def send_message(target_ip):
         print("Invalid choice.")
     s.close()
 
-def manage_connections(conn, addr):
-    data = conn.recv(2048)
-    if data.startswith(KEY_HEADER):
-        key_data = data[len(KEY_HEADER):]
+def manage_connections(data):
+    # Extract the sender's IP address from the received data
+    sender_ip, message = data.split(b':', 1)
+    addr = (sender_ip.decode(), None)  # We don't know the sender's port, so we can use None or any placeholder
+    
+    if message.startswith(KEY_HEADER):
+        key_data = message[len(KEY_HEADER):]
         with open(f"public_keys/{addr[0]}.pem", "wb") as f:
             f.write(key_data)
         print(f"Received and saved public key from {addr[0]}")
     else:
         try:
-            decrypted_message = decrypt_message(data)
+            decrypted_message = decrypt_message(message)
             with open(f"messages/{addr[0]}.txt", "a") as f:
                 f.write(f"{addr[0]}: {decrypted_message}\n")
             print(f"Received encrypted message from {addr[0]} and saved.")
         except:
             with open(f"messages/{addr[0]}.txt", "a") as f:
-                f.write(f"{addr[0]}: {data.decode('utf-8')}\n")
+                f.write(f"{addr[0]}: {message.decode('utf-8')}\n")
             print(f"Received unencrypted message from {addr[0]} and saved.")
 
 def listener():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(('0.0.0.0', 12345))
-    s.listen(5)
+    s.connect((RELAY_SERVER_IP, RELAY_SERVER_PORT))
+    
     while True:
-        conn, addr = s.accept()
-        manage_connections(conn, addr)
+        data = s.recv(2048)
+        if data == b"That client is not online":
+            print(data.decode())
+        else:
+            manage_connections(data)
 
 def view_received_messages_menu():
     ips = os.listdir("messages")
@@ -140,6 +147,7 @@ def menu():
             ip = input("Enter the target IP address to send your public key: ")
             send_message(ip)
         elif choice == "5":
+            s.close()
             break
 
 if __name__ == '__main__':
