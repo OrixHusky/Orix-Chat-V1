@@ -74,27 +74,35 @@ def send_message(target_ip):
 
 
 def process_received_data(data):
-    try:
-        sender_ip, message = data.split(b':', 1)
-    except ValueError:
-        print("Received data in an unexpected format:", data)
-        return
+    # Check if the data starts with the KEY_HEADER
+    if data.startswith(KEY_HEADER):
+        # Remove the KEY_HEADER prefix to get the actual key data
+        key_data = data[len(KEY_HEADER):]
+        # Assuming the relay server sends the sender's IP before the KEY_HEADER (if it doesn't, you'll need to change this part)
+        try:
+            sender_ip, key_data_actual = key_data.split(b'\n', 1)  # Trying to extract sender IP from the data
+            with open(f"public_keys/{sender_ip.decode()}.pem", "wb") as f:
+                f.write(key_data_actual)  # write the actual key data (after the sender IP) to file
+            print(f"Received and saved public key from {sender_ip.decode()}")
+        except ValueError:
+            print("Received public key in an unexpected format:", key_data)
+            return
 
-    if message.startswith(KEY_HEADER):
-        key_data = message[len(KEY_HEADER):]
-        with open(f"public_keys/{sender_ip.decode()}.pem", "wb") as f:
-            f.write(key_data)
-        print(f"Received and saved public key from {sender_ip.decode()}")
     else:
         try:
-            decrypted_message = decrypt_message(message)
-            with open(f"messages/{sender_ip.decode()}.txt", "a") as f:
-                f.write(f"{sender_ip.decode()}: {decrypted_message}\n")
-            print(f"Received encrypted message from {sender_ip.decode()} and saved.")
-        except:
-            with open(f"messages/{sender_ip.decode()}.txt", "a") as f:
-                f.write(f"{sender_ip.decode()}: {message.decode('utf-8')}\n")
-            print(f"Received unencrypted message from {sender_ip.decode()} and saved.")
+            sender_ip, message = data.split(b':', 1)
+            try:
+                decrypted_message = decrypt_message(message)
+                with open(f"messages/{sender_ip.decode()}.txt", "a") as f:
+                    f.write(f"{sender_ip.decode()}: {decrypted_message}\n")
+                print(f"Received encrypted message from {sender_ip.decode()} and saved.")
+            except:
+                with open(f"messages/{sender_ip.decode()}.txt", "a") as f:
+                    f.write(f"{sender_ip.decode()}: {message.decode('utf-8')}\n")
+                print(f"Received unencrypted message from {sender_ip.decode()} and saved.")
+        except ValueError:
+            print("Received data in an unexpected format:", data)
+            return
 
 def listener():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
