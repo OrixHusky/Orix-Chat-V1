@@ -3,6 +3,7 @@ import socket
 import json
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
+#Honestly don't know why this is highlighted
 
 # Constants and Global Variables
 BUFFER_SIZE = 4096
