@@ -3,7 +3,7 @@ import socket
 import json
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
-
+ 
 # Constants and Global Variables
 BUFFER_SIZE = 4096
 ACK_RECEIVED = b'ACK_RECEIVED'
