@@ -89,12 +89,25 @@ def listener():
         conn, addr = s.accept()
         manage_connections(conn, addr)
 
-def view_received_messages():
+def view_received_messages_menu():
     ips = os.listdir("messages")
-    for ip in ips:
-        print(f"\nMessages from {ip.replace('.txt', '')}:")
-        with open(f"messages/{ip}", "r") as f:
-            print(f.read())
+    while True:
+        print("\nReceived Messages Menu:")
+        for index, ip in enumerate(ips, start=1):
+            print(f"{index}. {ip.replace('.txt', '')}")
+        print(f"{len(ips) + 1}. Go back")
+        choice = input("> ")
+
+        if choice.isdigit() and 1 <= int(choice) <= len(ips):
+            ip = ips[int(choice) - 1]
+            with open(f"messages/{ip}", "r") as f:
+                print(f"\nMessages from {ip.replace('.txt', '')}:")
+                print(f.read())
+                input("Press any key to continue...")
+        elif choice == str(len(ips) + 1):
+            break
+        else:
+            print("Invalid choice.")
 
 def menu():
     while True:
@@ -119,7 +132,7 @@ def menu():
             ip = input("Enter the target IP address: ")
             send_message(ip)
         elif choice == "3":
-            view_received_messages()
+            view_received_messages_menu()
         elif choice == "4":
             ip = input("Enter the target IP address to send your public key: ")
             send_message(ip)

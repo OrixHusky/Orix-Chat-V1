@@ -1,5 +1,6 @@
 /settings.txt
-/my_public_key.pem
+/public.pem
+/private_key.pem
 /keys
 /messages
 /public_keys
