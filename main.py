@@ -2,27 +2,10 @@ import os
 import socket
 import json
 from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_OAEP
- 
-# Constants and Global Variables
-BUFFER_SIZE = 4096
-ACK_RECEIVED = b'ACK_RECEIVED'
-ACK_TIMEOUT = 5.0
-KEYS_DIRECTORY = "keys"
-SETTINGS_FILE = "settings.txt"
-connections = []
 
-# Function Definitions
-
-def generate_keypair():
-    key = RSA.generate(2048)
-    private_key = key.export_key().decode()
-    public_key = key.publickey().export_key().decode()
-    return private_key, public_key
-
-def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f)
+# File paths
+SETTINGS_FILE = "settings.json"
+KEYS_DIR = "public_keys"
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
@@ -30,117 +13,118 @@ def load_settings():
             return json.load(f)
     return {}
 
-def save_key_to_directory(ip, key_type, key_content):
-    if not os.path.exists(KEYS_DIRECTORY):
-        os.mkdir(KEYS_DIRECTORY)
-    
-    ip_directory = os.path.join(KEYS_DIRECTORY, ip.replace(".", "_"))
-    if not os.path.exists(ip_directory):
-        os.mkdir(ip_directory)
-    
-    key_file = os.path.join(ip_directory, key_type + ".pem")
-    with open(key_file, 'w') as f:
-        f.write(key_content)
+def save_settings(data):
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(data, f)
 
-def load_key_from_directory(ip, key_type):
-    ip_directory = os.path.join(KEYS_DIRECTORY, ip.replace(".", "_"))
-    key_file = os.path.join(ip_directory, key_type + ".pem")
-    if os.path.exists(key_file):
-        with open(key_file, 'r') as f:
+def generate_keypair():
+    key = RSA.generate(2048)
+    private_key = key.export_key().decode()
+    public_key = key.publickey().export_key().decode()
+    return private_key, public_key
+
+def save_public_key_to_root(public_key):
+    with open("public.pem", 'w') as f:
+        f.write(public_key)
+
+def load_public_key_from_root():
+    if os.path.exists("public.pem"):
+        with open("public.pem", 'r') as f:
             return f.read()
     return None
 
-def handle_client(client_socket, client_ip, settings):
-    while True:
-        try:
-            encrypted_msg = client_socket.recv(BUFFER_SIZE)
-            if not encrypted_msg:
-                print(f"{client_ip} has disconnected.")
-                connections.remove(client_socket)
-                client_socket.close()
-                break
+def send_public_key_to_ip(ip):
+    public_key_content = load_public_key_from_root()
+    if not public_key_content:
+        print("No public key found.")
+        return
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((ip, 12345))
+            s.sendall(b'PUBLIC_KEY:' + public_key_content.encode())
+            print(f"Public key sent to {ip}.")
+    except Exception as e:
+        print(f"Error sending public key to {ip}. Error: {e}")
 
-            if encrypted_msg == ACK_RECEIVED:
-                print(f"Received acknowledgment from {client_ip}")
-                continue
+def save_received_public_key(sender_ip, public_key_content):
+    if not os.path.exists(KEYS_DIR):
+        os.makedirs(KEYS_DIR)
+    with open(os.path.join(KEYS_DIR, f"{sender_ip}.pem"), 'w') as f:
+        f.write(public_key_content)
 
-            private_key = RSA.import_key(settings["private_key"].encode())
-            cipher = PKCS1_OAEP.new(private_key)
-            decrypted_msg = cipher.decrypt(encrypted_msg)
-            print(f"Received encrypted message from {client_ip}: {decrypted_msg.decode()}")
-            client_socket.send(ACK_RECEIVED)
-
-        except Exception as e:
-            print(f"Error in client handler for {client_ip}. Error: {e}")
-            connections.remove(client_socket)
-            client_socket.close()
-            break
-
-# Main Logic
-
-settings = load_settings()
-
-while True:
-    print("   ____       _          _____ _           _   ")
-    print("  / __ \     (_)        / ____| |         | | ")
-    print(" | |  | |_ __ ___  __  | |    | |__   __ _| |_ ")
-    print(" | |  | | '__| \ \/ /  | |    | '_ \ / _` | __|")
-    print(" | |__| | |  | |>  <   | |____| | | | (_| | |_ ")
-    print("  \____/|_|  |_/_/\_\   \_____|_| |_|\__,_|\__|")
-    print("\nMenu:")
-    print("1. Generate and save new key pair.")
-    print("2. Save a known peer's public key.")
-    print("3. Connect to a peer.")
-    print("4. Send an encrypted message.")
-    print("5. Exit.")
-    
-    choice = input("Enter your choice: ")
-
-    if choice == "1":
-        private_key, public_key = generate_keypair()
-        settings["private_key"] = private_key
-        settings["public_key"] = public_key
-        save_settings(settings)
-        print("Key pair generated and saved.")
-
-    elif choice == "2":
-        ip = input("Enter the IP of the peer: ")
-        public_key = input("Paste the public key of the peer: ")
-        save_key_to_directory(ip, "public", public_key)
-        print(f"Saved public key for {ip}.")
-
-    elif choice == "3":
-        ip = input("Enter the IP to connect to: ")
-        port = int(input("Enter the port to connect to (default 65432): ") or 65432)
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((ip, port))
-        connections.append(s)
-        print(f"Connected to {ip} on port {port}.")
-
-    elif choice == "4":
-        ip_to_send = input("Enter the IP to send an encrypted message to: ")
-        message = input("Enter the message: ")
-        peer_public_key_content = load_key_from_directory(ip_to_send, "public")
-        if peer_public_key_content:
-            peer_public_key = RSA.import_key(peer_public_key_content)
-            cipher = PKCS1_OAEP.new(peer_public_key)
-            encrypted_message = cipher.encrypt(message.encode())
-            for conn in connections:
-                if conn.getpeername()[0] == ip_to_send:
-                    conn.send(encrypted_message)
-                    try:
-                        acknowledgment = conn.recv(BUFFER_SIZE)
-                        if acknowledgment == ACK_RECEIVED:
-                            print("Message successfully received by the peer.")
-                        else:
-                            print("Error in acknowledgment from the peer.")
-                    except socket.timeout:
-                        print("Timed out waiting for acknowledgment. Message might not have been received.")
-                    break
+def manage_connections(conn, addr):
+    with conn:
+        print(f"Connected by {addr}")
+        data = conn.recv(1024).decode()
+        if data.startswith('PUBLIC_KEY:'):
+            actual_key = data[len('PUBLIC_KEY:'):].strip()
+            save_received_public_key(addr[0], actual_key)
+            print(f"Received and saved public key from {addr[0]}.")
         else:
-            print(f"No public key found for {ip_to_send}.")
+            print(f"Message from {addr[0]}: {data}")
 
-    elif choice == "5":
-        for conn in connections:
-            conn.close()
-        break
+def start_server():
+    host = "0.0.0.0"
+    port = 12345
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, port))
+        s.listen()
+        print("Server listening...")
+        while True:
+            conn, addr = s.accept()
+            manage_connections(conn, addr)
+
+def menu():
+    while True:
+        print("\nOrix Chat Application")
+        print("1. Generate a new key pair.")
+        print("2. Display your private key.")
+        print("3. Display your public key.")
+        print("4. Connect to an IP.")
+        print("5. Show active connections.")
+        print("6. Change settings.")
+        print("7. Send your public key to an IP.")
+        print("8. Start the server to listen for messages.")
+        print("9. Exit.")
+        
+        choice = input("Enter your choice: ")
+
+        settings = load_settings()
+        
+        if choice == "1":
+            private_key, public_key = generate_keypair()
+            settings["private_key"] = private_key
+            save_settings(settings)
+            save_public_key_to_root(public_key)
+            print("Key pair generated and saved.")
+        elif choice == "2":
+            print(settings.get("private_key", "No private key found."))
+        elif choice == "3":
+            public_key_content = load_public_key_from_root()
+            if public_key_content:
+                print("Your public key is:")
+                print(public_key_content)
+            else:
+                print("No public key found.")
+        elif choice == "4":
+            target_ip = input("Enter target IP to connect: ")
+            # (You'd add logic here to connect and chat with the target IP)
+        elif choice == "5":
+            # (You'd display any active connections here)
+            print("This feature hasn't been implemented yet.")
+        elif choice == "6":
+            # (You'd implement settings change logic here)
+            print("This feature hasn't been implemented yet.")
+        elif choice == "7":
+            ip_to_send = input("Enter the IP to send your public key to: ")
+            send_public_key_to_ip(ip_to_send)
+        elif choice == "8":
+            start_server()
+        elif choice == "9":
+            print("Goodbye!")
+            break
+        else:
+            print("Invalid choice!")
+
+if __name__ == "__main__":
+    menu()
