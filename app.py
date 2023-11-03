@@ -6,6 +6,8 @@ import threading
 
 # Constants
 KEY_HEADER = b'SENDING_PUBLIC_KEY'
+RELAY_SERVER_IP = '172.126.229.186'  # This should be your relay server's IP.
+RELAY_SERVER_PORT = 4465      # And its port.
 
 def generate_keys():
     # Key generation
@@ -34,16 +36,17 @@ def decrypt_message(encrypted_message):
 
 def send_message(target_ip):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((target_ip, 12345))
-
+    s.connect((RELAY_SERVER_IP, RELAY_SERVER_PORT))
     choice = input("Send encrypted message (E) or unencrypted (U) or public key (K): ").lower()
     
+    # Prepending the target IP to the message/payload for the relay server.
+    payload = target_ip.encode() + b':' 
+
     if choice == "k":
-        # Sending public key
         with open("public.pem", "rb") as f:
             key_data = f.read()
-        s.send(KEY_HEADER + key_data)
-        print("Public key sent.")
+        s.send(payload + KEY_HEADER + key_data)
+        print("Public key sent to relay server.")
     elif choice == "e":
         target_key_file = f'public_keys/{target_ip}.pem'
         if not os.path.exists(target_key_file):
@@ -53,12 +56,12 @@ def send_message(target_ip):
             target_pub_key = RSA.import_key(f.read())
         message = input("Enter your encrypted message: ").encode('utf-8')
         encrypted_message = encrypt_message(message, target_pub_key)
-        s.send(encrypted_message)
-        print("Encrypted message sent.")
+        s.send(payload + encrypted_message)
+        print("Encrypted message sent to relay server.")
     elif choice == "u":
         message = input("Enter your unencrypted message: ").encode('utf-8')
-        s.send(message)
-        print("Unencrypted message sent.")
+        s.send(payload + message)
+        print("Unencrypted message sent to relay server.")
     else:
         print("Invalid choice.")
     s.close()
